@@ -30,3 +30,19 @@ def test_injection_refusal_is_not_replayed():
                 await hv.credentials.inject("google", "private-test-key", storage="memory")
             assert len(received) == 1
     asyncio.run(run())
+
+
+def test_bound_injection_names_its_binding_and_requires_it_only_for_http():
+    async def run():
+        reference = "credential:blake3:" + "b" * 64
+        async with gateway(response={"credential_ref": reference, "storage": "file"}) as (url, received):
+            async with Hypervisor(url, "gateway-token") as hv:
+                response = await hv.credentials.inject("http", "private-bound-key", binding="stripe")
+                assert response.credential_ref == reference
+                for provider, binding in [("http", None), ("http", ""), ("openai", "stripe")]:
+                    with pytest.raises(ValueError):
+                        await hv.credentials.inject(provider, "private-bound-key", binding=binding)
+            assert received == [("POST", "/credentials/inject", {
+                "provider": "http", "binding": "stripe", "value": "private-bound-key", "storage": "file",
+            })]
+    asyncio.run(run())

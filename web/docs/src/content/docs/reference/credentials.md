@@ -25,7 +25,8 @@ sign-in does not by itself authorize every VM to use it.
 
 | Field | Values / requirement |
 | --- | --- |
-| `provider` | `anthropic`, `google`, `openai`, `github`, `mcp`. |
+| `provider` | `anthropic`, `google`, `openai`, `github`, `mcp`, or `http` for an [HTTP credential binding](#http-credential-bindings). |
+| `binding` | Required with `http`, refused otherwise: a binding id declared in settings or corp policy. |
 | `value` | Nonempty secret string; write-only input. |
 | `storage` | `file` (default) or `memory`. Memory lasts for the current service lifetime. |
 | Response | `credential_ref` and `storage`. |
@@ -33,6 +34,59 @@ sign-in does not by itself authorize every VM to use it.
 Injection does not start browser consent or refresh a supplied OAuth token.
 Use the returned reference in the workload configuration; do not print or
 write the original secret into the VM's files.
+
+## HTTP credential bindings
+
+A binding lets a VM use a host-held secret for an HTTP API outside the
+built-in providers, such as Stripe, Linear or an internal service, without
+the secret entering the VM. The host declares exactly where the secret may
+be sent, in `settings.toml` or corp policy:
+
+```toml
+[credential_bindings.stripe]
+hosts         = ["api.stripe.com"]          # exact host or "*.example.com"; no IP literals
+placement     = { header = "authorization", scheme = "Bearer" }
+# placement   = { header = "x-api-key" }    # bare header value
+# placement   = { query = "api_key" }       # query parameter
+methods       = ["GET", "POST"]             # optional; default all
+path_prefixes = ["/v1/"]                    # optional; default all
+```
+
+Inject the secret with `provider = "http"` and `binding = "stripe"`, then put
+the returned reference in the VM, for example
+`STRIPE_API_KEY=credential:blake3:...`. The reference is substituted only when
+every condition holds:
+
+- the request host matches the binding (`*.example.com` matches subdomains,
+  not `example.com` itself);
+- the reference is in the binding's header, with the declared scheme, or its
+  query key;
+- the method and path are within the binding's limits; with path prefixes
+  set, paths containing dot segments or percent-encodings are refused;
+- the reference was issued for that binding.
+
+Anything else is refused and the reference is not forwarded. A corp binding
+replaces the user's binding of the same id. Bindings may not name built-in
+provider domains, and they follow policy edits: removing a binding stops its
+use on the next request.
+
+| Flow | Status |
+| --- | --- |
+| Static token in `Authorization` with a scheme | Supported |
+| Static key in a named header | Supported |
+| Static key in a named query parameter | Supported |
+| HTTP Basic, request signing (AWS SigV4, HMAC) | Not supported |
+| OAuth refresh for custom providers | Not supported |
+| Non-HTTP protocols | Not supported |
+
+Limits:
+
+- Any process in the VM that holds the reference can use the secret against
+  the bound host, within the binding's limits. Keep bindings narrow, prefer
+  upstream-scoped keys, and use security rules for finer control.
+- Response bodies and headers are not yet scrubbed. An upstream that echoes
+  the secret back returns it to the VM.
+- Some client libraries validate key prefixes and may reject a reference.
 
 ## Provider authorization
 

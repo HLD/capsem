@@ -4,7 +4,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use capsem_core::credential_broker::{
-    BrokeredCredential, BrokeredUpstreamCredentials, CredentialObservation, CredentialProvider,
+    BoundReference, BrokeredCredential, BrokeredUpstreamCredentials, CredentialObservation, CredentialProvider,
+    UpstreamTarget,
 };
 use capsem_core::net::ai_traffic::provider::ProviderKind;
 use capsem_core::net::proxy_engine::ProxyCredentials;
@@ -29,6 +30,8 @@ enum Command {
     Substitute {
         domain: String,
         ai_provider: Option<ProviderKind>,
+        method: String,
+        path: String,
         headers: http::HeaderMap,
         query: Option<String>,
         reply: SubstituteReply,
@@ -109,16 +112,17 @@ impl ProxyCredentials for CredentialClient {
 
     fn substitute_upstream(
         &self,
-        domain: &str,
-        ai_provider: Option<ProviderKind>,
+        target: UpstreamTarget<'_>,
         headers: &mut http::HeaderMap,
         query: Option<&str>,
     ) -> Result<BrokeredUpstreamCredentials, String> {
         let (reply, response) = mpsc::sync_channel(1);
         let (substituted_headers, result) = self.send(
             Command::Substitute {
-                domain: domain.to_string(),
-                ai_provider,
+                domain: target.domain.to_string(),
+                ai_provider: target.ai_provider,
+                method: target.method.to_string(),
+                path: target.path.to_string(),
                 headers: headers.clone(),
                 query: query.map(str::to_string),
                 reply,
@@ -229,6 +233,8 @@ fn request_for(request_id: u64, command: &Command) -> ProxyCredentialRequest {
         Command::Substitute {
             domain,
             ai_provider,
+            method,
+            path,
             headers,
             query,
             ..
@@ -236,6 +242,8 @@ fn request_for(request_id: u64, command: &Command) -> ProxyCredentialRequest {
             request_id,
             domain: domain.clone(),
             ai_provider: ai_provider.map(wire_model_provider),
+            method: method.clone(),
+            path: path.clone(),
             headers: wire_headers(headers),
             query: query.clone(),
         },
@@ -254,11 +262,27 @@ fn finish(command: Command, response: ProxyCredentialResponse) -> Result<(), Str
                 headers,
                 query,
                 credential_ref,
+                bound,
                 ..
             },
         ) => {
-            let result =
-                core_headers(headers).map(|headers| (headers, BrokeredUpstreamCredentials { credential_ref, query }));
+            let bound = bound
+                .into_iter()
+                .map(|bound| BoundReference {
+                    credential_ref: bound.credential_ref,
+                    binding: bound.binding,
+                })
+                .collect();
+            let result = core_headers(headers).map(|headers| {
+                (
+                    headers,
+                    BrokeredUpstreamCredentials {
+                        credential_ref,
+                        query,
+                        bound,
+                    },
+                )
+            });
             let _ = reply.send(result);
             Ok(())
         }

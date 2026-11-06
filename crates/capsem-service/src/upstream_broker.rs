@@ -33,6 +33,8 @@ use crate::instance::WorkerGrant;
 use crate::ledger_worker::{LedgerClient, LedgerWorkers};
 
 mod adoption;
+mod policy_watch;
+pub(crate) use policy_watch::policy_watch;
 mod approval;
 use adoption::AwaitingAdoption;
 mod guest_metadata;
@@ -134,6 +136,10 @@ impl LedgerSource {
 impl BrokerPolicy {
     pub(crate) fn new(digest: String, runtime: Arc<CompiledActivePolicy>) -> Arc<Self> {
         Arc::new(Self { digest, runtime })
+    }
+
+    pub(crate) fn credential_bindings(&self) -> &capsem_config::CredentialBindings {
+        &self.runtime.credential_bindings
     }
 }
 

@@ -19,6 +19,8 @@ fn bounded_capture_and_substitution_requests_validate() {
         request_id: 2,
         domain: "api.openai.com".to_string(),
         ai_provider: Some(ProxyModelProvider::OpenAi),
+        method: "POST".to_string(),
+        path: "/v1/responses".to_string(),
         headers: vec![ProxyHeader::new(
             "authorization",
             b"Bearer credential:blake3:abc".to_vec(),

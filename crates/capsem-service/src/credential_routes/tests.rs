@@ -133,3 +133,50 @@ async fn memory_handoff_uses_correlated_real_host_ipc_and_acknowledgement() {
     assert!(sync_memory(&state, &dir.path().join("absent.sock")).await.is_err());
     CredentialStore::global().clear_for_test();
 }
+
+#[tokio::test]
+async fn http_injection_requires_a_binding_declared_by_settings_or_corp() {
+    let _lock = SETTINGS_ENV_LOCK.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let (_settings_env, settings_path, corp_path) = crate::tests::install_empty_settings_env(&dir);
+    let _store = EnvVarGuard::set("CAPSEM_CREDENTIAL_STORE_PATH", dir.path().join("store.json"));
+    std::fs::write(
+        &settings_path,
+        "[credential_bindings.user-svc]\nhosts = [\"api.user-svc.test\"]\nplacement = { header = \"x-api-key\" }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &corp_path,
+        "[credential_bindings.corp-svc]\nhosts = [\"api.corp-svc.test\"]\nplacement = { query = \"key\" }\n",
+    )
+    .unwrap();
+    CredentialStore::global().clear_for_test();
+    let request = |provider: &str, binding: Option<&str>| -> api::CredentialInjectRequest {
+        let mut json = serde_json::json!({"provider": provider, "value": "private-bound-value", "storage": "memory"});
+        if let Some(binding) = binding {
+            json["binding"] = binding.into();
+        }
+        serde_json::from_value(json).unwrap()
+    };
+
+    for binding in ["user-svc", "corp-svc"] {
+        let reference = inject_request(&request("http", Some(binding))).unwrap();
+        assert_eq!(
+            reference,
+            capsem_proto::credential_reference::credential_reference(&format!("http:{binding}"), "private-bound-value")
+        );
+        assert_eq!(
+            CredentialStore::global().resolve_bound(binding, &reference).unwrap().as_deref(),
+            Some("private-bound-value")
+        );
+    }
+    for (provider, binding) in [
+        ("http", Some("undeclared")),
+        ("http", None),
+        ("openai", Some("user-svc")),
+    ] {
+        let error = inject_request(&request(provider, binding)).unwrap_err();
+        assert!(!error.contains("private-bound-value"), "{error}");
+    }
+    CredentialStore::global().clear_for_test();
+}

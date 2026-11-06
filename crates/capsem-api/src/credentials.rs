@@ -10,6 +10,8 @@ pub enum CredentialInjectProvider {
     Openai,
     Github,
     Mcp,
+    /// A host-declared HTTP credential binding, named by `binding`.
+    Http,
 }
 
 impl CredentialInjectProvider {
@@ -20,6 +22,7 @@ impl CredentialInjectProvider {
             Self::Openai => "openai",
             Self::Github => "github",
             Self::Mcp => "mcp",
+            Self::Http => "http",
         }
     }
 }
@@ -40,6 +43,11 @@ pub struct CredentialInjectRequest {
     pub value: String,
     #[serde(default)]
     pub storage: CredentialStorage,
+    /// Required with provider `http`, refused otherwise: the id of a
+    /// `[credential_bindings.<id>]` entry in the host's settings or corp
+    /// policy. The returned reference is usable only through that binding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<String>,
 }
 
 impl std::fmt::Debug for CredentialInjectRequest {
@@ -47,6 +55,7 @@ impl std::fmt::Debug for CredentialInjectRequest {
         f.debug_struct("CredentialInjectRequest")
             .field("provider", &self.provider)
             .field("storage", &self.storage)
+            .field("binding", &self.binding)
             .finish_non_exhaustive()
     }
 }

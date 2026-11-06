@@ -29,3 +29,21 @@ it('does not replay refused credential injections', async () => {
     } finally { hv.close(); }
   });
 });
+
+it('names the binding for http credentials and requires it only there', async () => {
+  const reference = `credential:blake3:${'b'.repeat(64)}`;
+  await gateway((_request, reply) => reply.end(JSON.stringify({credential_ref: reference, storage: 'file'})), async (url, received) => {
+    const hv = new Hypervisor(url, 'gateway-token');
+    try {
+      const response = await hv.credentials.inject('http', 'private-bound-key', {binding: 'stripe'});
+      expect(response.credential_ref).toBe(reference);
+      for (const [provider, binding] of [['http', undefined], ['http', ''], ['openai', 'stripe']] as const) {
+        await expect(hv.credentials.inject(provider, 'private-bound-key', {binding})).rejects.toBeInstanceOf(TypeError);
+      }
+      expect(received).toHaveLength(1);
+      expect(JSON.parse(received[0]?.body.toString() ?? '')).toEqual({
+        provider: 'http', binding: 'stripe', value: 'private-bound-key', storage: 'file',
+      });
+    } finally { hv.close(); }
+  });
+});

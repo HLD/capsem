@@ -112,6 +112,8 @@ impl ServiceState {
         )
         .map_err(anyhow::Error::msg)?;
         let (broker, upstream_policy) = upstream_broker::PendingBroker::pair(active_policy.broker_policy())?;
+        let (credential_policy, credential_publisher) = upstream_broker::policy_watch(active_policy.broker_policy());
+        let upstream_policy = upstream_policy.merge(credential_publisher);
         let listener = TcpListener::bind(SocketAddr::new(bind_ip, port))
             .await
             .context("bind standalone proxy data listener")?;
@@ -138,7 +140,7 @@ impl ServiceState {
             let _ = worker.shutdown().await;
             return Err(error);
         }
-        if let Err(error) = self.grant_proxy_credentials(&worker).await {
+        if let Err(error) = self.grant_proxy_credentials(&worker, credential_policy).await {
             let _ = worker.shutdown().await;
             let _ = self.ledger_workers.shutdown(session_id).await;
             return Err(error);

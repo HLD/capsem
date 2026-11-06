@@ -11,3 +11,4 @@ class CredentialInjectProvider(StrEnum):
     OPENAI = 'openai'
     GITHUB = 'github'
     MCP = 'mcp'
+    HTTP = 'http'

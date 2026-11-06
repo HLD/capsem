@@ -19,13 +19,33 @@ impl CredentialStore {
         value: &str,
         persistence: CredentialPersistence,
     ) -> Result<String, String> {
+        self.inject_in(&provider.into(), value, persistence)
+    }
+
+    /// Inject material usable only through one host-declared HTTP binding.
+    /// Callers validate that the binding exists in trusted configuration.
+    pub fn inject_bound(
+        &self,
+        binding: &str,
+        value: &str,
+        persistence: CredentialPersistence,
+    ) -> Result<String, String> {
+        self.inject_in(&CredentialNamespace::binding(binding)?, value, persistence)
+    }
+
+    fn inject_in(
+        &self,
+        namespace: &CredentialNamespace,
+        value: &str,
+        persistence: CredentialPersistence,
+    ) -> Result<String, String> {
         validate_value(value)?;
-        let reference = capsem_proto::credential_reference::credential_reference(provider.as_str(), value);
+        let reference = capsem_proto::credential_reference::credential_reference(&namespace.as_str(), value);
         let _guard = self.durable_lock.lock().map_err(|_| "credential store unavailable")?;
         if persistence == CredentialPersistence::File {
-            durable::write(provider, &reference, value).map_err(|_| "credential file persistence failed")?;
+            durable::write(namespace, &reference, value).map_err(|_| "credential file persistence failed")?;
         }
-        let key = credential_store_key(provider, &reference);
+        let key = namespace.account(&reference);
         let mut cache = self.cache.lock().map_err(|_| "credential store unavailable")?;
         let mut memory = self.memory_refs.lock().map_err(|_| "credential store unavailable")?;
         cache.insert(key.clone(), value.to_owned());
@@ -47,9 +67,9 @@ impl CredentialStore {
         Ok(memory
             .iter()
             .filter_map(|key| {
-                let (provider, credential_ref) = key.split_once(':')?;
+                let (namespace, credential_ref) = CredentialNamespace::parse_account(key)?;
                 Some(CredentialMaterial {
-                    provider: provider.to_owned(),
+                    provider: namespace.as_str().into_owned(),
                     credential_ref: credential_ref.to_owned(),
                     value: cache.get(key)?.clone(),
                 })
@@ -62,9 +82,9 @@ impl CredentialStore {
     pub fn import_memory_credentials(&self, entries: Vec<CredentialMaterial>) -> Result<(), String> {
         for entry in &entries {
             validate_value(&entry.value)?;
-            let provider = credential_provider_from_str(&entry.provider).ok_or("invalid credential provider")?;
+            let namespace = CredentialNamespace::parse(&entry.provider).ok_or("invalid credential provider")?;
             if entry.credential_ref
-                != capsem_proto::credential_reference::credential_reference(provider.as_str(), &entry.value)
+                != capsem_proto::credential_reference::credential_reference(&namespace.as_str(), &entry.value)
             {
                 return Err("credential reference mismatch".into());
             }

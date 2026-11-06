@@ -11,6 +11,15 @@ use std::net::IpAddr;
 
 use super::protocol::Protocol;
 
+/// The guest-facing body for a request the security rules did not admit.
+pub(super) fn refused_request_body(action: crate::security_engine::SecurityEnforcementAction, rule_id: &str) -> String {
+    if matches!(action, crate::security_engine::SecurityEnforcementAction::Ask) {
+        format!("capsem: HTTP request requires approval by security rule: {rule_id}\n")
+    } else {
+        format!("capsem: HTTP request blocked by security rule: {rule_id}\n")
+    }
+}
+
 pub(super) fn request_can_replay_empty_body(method: &http::Method, headers: &http::HeaderMap) -> bool {
     let no_declared_length = headers
         .get(http::header::CONTENT_LENGTH)

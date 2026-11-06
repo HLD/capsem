@@ -8,8 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use capsem_core::credential_broker::{BrokeredCredential, BrokeredUpstreamCredentials, CredentialObservation};
-use capsem_core::net::ai_traffic::provider::ProviderKind;
+use capsem_core::credential_broker::{
+    BrokeredCredential, BrokeredUpstreamCredentials, CredentialObservation, UpstreamTarget,
+};
 use capsem_core::net::proxy_engine::{
     ProxyCapabilityFuture, ProxyCredentials, ProxyEngine, ProxyLedger, ProxyPolicyHandle, ProxyRuntimePolicy,
 };
@@ -754,8 +755,7 @@ impl ProxyCredentials for UnavailableCredentials {
 
     fn substitute_upstream(
         &self,
-        _domain: &str,
-        _ai_provider: Option<ProviderKind>,
+        _target: UpstreamTarget<'_>,
         _headers: &mut http::HeaderMap,
         _query: Option<&str>,
     ) -> std::result::Result<BrokeredUpstreamCredentials, String> {

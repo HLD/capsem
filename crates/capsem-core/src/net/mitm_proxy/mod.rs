@@ -814,20 +814,13 @@ async fn handle_request(
         observations.extend(http_evaluation.event.credential_observations.clone());
         observations
     };
-    let credential_injections = http_evaluation.event.credential_injections.clone();
+    let mut credential_injections = http_evaluation.event.credential_injections.clone();
     request_security_decision = request_security_decision.with_evaluation(&http_evaluation);
     if !http_evaluation.enforcement.is_allowed() {
         actions_span.record("decision", http_evaluation.enforcement.action.as_str());
         actions_span.record("status", "ok");
         let rule_id = http_evaluation.enforcement.rule_id.as_deref().unwrap_or("unknown");
-        let body_text = if matches!(
-            http_evaluation.enforcement.action,
-            crate::security_engine::SecurityEnforcementAction::Ask
-        ) {
-            format!("capsem: HTTP request requires approval by security rule: {rule_id}\n")
-        } else {
-            format!("capsem: HTTP request blocked by security rule: {rule_id}\n")
-        };
+        let body_text = util::refused_request_body(http_evaluation.enforcement.action, rule_id);
         // An abandoned original has no observed downstream response status.
         let status_code = (!cancellation.is_cancelled()).then_some(403);
         let req_ctx = TelemetryRequestContext {
@@ -951,6 +944,7 @@ async fn handle_request(
         }
     };
     original_headers = upstream_materialized.headers;
+    crate::credential_broker::attribute_bound_injections(&mut credential_injections, &upstream_materialized.bound);
     let credential_ref = credential_ref
         .clone()
         .or_else(|| upstream_materialized.credential_ref.clone());

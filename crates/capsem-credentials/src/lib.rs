@@ -3,6 +3,7 @@
 pub mod broker;
 mod durable;
 mod grants;
+mod namespace;
 mod oauth;
 mod provider;
 mod store;
@@ -11,6 +12,7 @@ pub use durable::STORE_PATH_ENV;
 pub use grants::{
     GrantAuthority, GrantCapability, GrantError, GrantHandle, GrantLimits, GrantSession, GrantStopPolicy, GrantTarget,
 };
+pub use namespace::CredentialNamespace;
 pub use oauth::{
     AuthorizationParameters, CallbackExchange, GoogleAccessLease, GoogleAuthorization, GoogleConnection,
     GoogleConnectionError, GoogleConnectionMetadata, GoogleConnectionState, GoogleConnectionStatus, GoogleIdentity,

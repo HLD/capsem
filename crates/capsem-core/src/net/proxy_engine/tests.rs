@@ -183,8 +183,7 @@ impl ProxyCredentials for RecordingCredentials {
 
     fn substitute_upstream(
         &self,
-        _domain: &str,
-        _ai_provider: Option<crate::net::ai_traffic::provider::ProviderKind>,
+        _target: crate::credential_broker::UpstreamTarget<'_>,
         headers: &mut http::HeaderMap,
         query: Option<&str>,
     ) -> Result<BrokeredUpstreamCredentials, String> {
@@ -196,6 +195,7 @@ impl ProxyCredentials for RecordingCredentials {
         Ok(BrokeredUpstreamCredentials {
             credential_ref: Some("blake3:scoped-reference".to_string()),
             query: query.map(str::to_string),
+            bound: Vec::new(),
         })
     }
 }
@@ -325,13 +325,12 @@ impl ProxyCredentials for GatedCredentials {
 
     fn substitute_upstream(
         &self,
-        domain: &str,
-        provider: Option<crate::net::ai_traffic::provider::ProviderKind>,
+        target: crate::credential_broker::UpstreamTarget<'_>,
         headers: &mut http::HeaderMap,
         query: Option<&str>,
     ) -> Result<BrokeredUpstreamCredentials, String> {
         self.wait()?;
-        self.recording.substitute_upstream(domain, provider, headers, query)
+        self.recording.substitute_upstream(target, headers, query)
     }
 }
 

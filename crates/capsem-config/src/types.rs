@@ -428,6 +428,10 @@ pub struct SettingsFile {
     /// MCP server configuration (optional section in settings or corp TOML).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp: Option<crate::mcp::McpConfig>,
+    /// Host-declared destinations for brokered HTTP credentials
+    /// (`[credential_bindings.<id>]`); corp replaces the user's of the same id.
+    #[serde(default, skip_serializing_if = "crate::CredentialBindings::is_empty")]
+    pub credential_bindings: crate::CredentialBindings,
     /// Corporate-owned network mechanics such as DNS upstreams.
     #[serde(default, skip_serializing_if = "NetworkConfig::is_empty")]
     pub network: NetworkConfig,

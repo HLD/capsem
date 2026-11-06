@@ -368,3 +368,71 @@ fn settings_toml_behavior_settings_reach_the_active_policy() {
     assert_eq!(locked.network.max_body_capture, Some(0), "corp wins");
     assert_eq!(locked.network.log_bodies, Some(true));
 }
+
+#[test]
+fn credential_bindings_merge_settings_under_corp_and_reach_the_runtime() {
+    let settings = parse(
+        r#"
+[credential_bindings.stripe]
+hosts = ["api.stripe.com"]
+placement = { header = "authorization", scheme = "Bearer" }
+
+[credential_bindings.personal]
+hosts = ["api.personal.test"]
+placement = { query = "key" }
+"#,
+    );
+    let corp = parse(
+        r#"
+[credential_bindings.stripe]
+hosts = ["api.stripe.com"]
+placement = { header = "authorization", scheme = "Bearer" }
+methods = ["GET"]
+"#,
+    );
+    let active = ActivePolicyFile::from_settings_and_corp(&settings, &corp).expect("bindings materialize");
+    let stripe = active.credential_bindings.get("stripe").expect("stripe bound");
+    assert!(
+        !stripe.admits_request("POST", "/v1/charges"),
+        "corp's narrower binding wins"
+    );
+    assert!(active.credential_bindings.get("personal").is_some());
+
+    let serialized = toml::to_string_pretty(&active).unwrap();
+    let reparsed: ActivePolicyFile = toml::from_str(&serialized).expect("session policy file round-trips");
+    assert_eq!(reparsed, active);
+    let runtime = reparsed.compile_runtime().expect("runtime compiles");
+    assert_eq!(runtime.credential_bindings, active.credential_bindings);
+
+    let empty = ActivePolicyFile::from_settings_and_corp(&SettingsFile::default(), &SettingsFile::default()).unwrap();
+    assert!(!toml::to_string_pretty(&empty).unwrap().contains("credential_bindings"));
+}
+
+#[test]
+fn credential_bindings_may_not_name_built_in_provider_domains() {
+    for host in [
+        "api.openai.com",
+        "*.openai.com",
+        "API.ANTHROPIC.COM",
+        "claude.com",
+        "*.googleapis.com",
+        "api.github.com",
+    ] {
+        let settings = parse(&format!(
+            "[credential_bindings.shadow]\nhosts = [{host:?}]\nplacement = {{ header = \"authorization\", scheme = \"Bearer\" }}"
+        ));
+        let error = ActivePolicyFile::from_settings_and_corp(&settings, &SettingsFile::default()).unwrap_err();
+        assert!(error.contains("built-in credential provider"), "{host}: {error}");
+    }
+    for host in [
+        "evil-openai.com",
+        "openai.com.example.test",
+        "*.githubusercontent.example",
+    ] {
+        let settings = parse(&format!(
+            "[credential_bindings.ok]\nhosts = [{host:?}]\nplacement = {{ query = \"k\" }}"
+        ));
+        ActivePolicyFile::from_settings_and_corp(&settings, &SettingsFile::default())
+            .unwrap_or_else(|error| panic!("{host}: {error}"));
+    }
+}

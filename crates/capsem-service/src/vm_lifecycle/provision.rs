@@ -168,7 +168,11 @@ impl ServiceState {
         let (proxy_upstream_broker, proxy_upstream_policy) =
             crate::upstream_broker::PendingBroker::pair(active_policy.broker_policy())?;
         let proxy_upstream = proxy_upstream_broker.worker_stream()?;
-        let upstream_policy = owner_upstream_policy.merge(proxy_upstream_policy);
+        let (credential_policy, credential_publisher) =
+            crate::upstream_broker::policy_watch(active_policy.broker_policy());
+        let upstream_policy = owner_upstream_policy
+            .merge(proxy_upstream_policy)
+            .merge(credential_publisher);
 
         info!(process_binary = %self.process_binary.display(), exists = self.process_binary.exists(), "checking process_binary");
 
@@ -303,7 +307,9 @@ impl ServiceState {
             let _reaper = instance_reaper::kill_and_reap(child, retirement);
             return Err(error);
         }
-        if let Err(error) = tokio::runtime::Handle::current().block_on(self.grant_proxy_credentials(&proxy)) {
+        if let Err(error) =
+            tokio::runtime::Handle::current().block_on(self.grant_proxy_credentials(&proxy, credential_policy))
+        {
             let _reaper = instance_reaper::kill_and_reap(child, retirement);
             return Err(error);
         }

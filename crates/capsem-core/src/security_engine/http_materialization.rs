@@ -1,5 +1,6 @@
 //! The single provider-scoped runtime credential materialization boundary.
 use super::*;
+use crate::credential_broker::UpstreamTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpRequestSecurityEvent {
@@ -30,6 +31,7 @@ pub struct MaterializedHttpRequest {
     pub headers: http::HeaderMap,
     pub query: Option<String>,
     pub credential_ref: Option<String>,
+    pub bound: Vec<crate::credential_broker::BoundReference>,
 }
 
 pub fn materialize_http_request_for_upstream(
@@ -53,23 +55,31 @@ pub(crate) fn materialize_http_request_for_upstream_with_credentials(
             headers: request.headers.clone(),
             query: request.query.clone(),
             credential_ref: event.credential_ref.clone(),
+            bound: Vec::new(),
         });
     }
 
     let mut headers = request.headers.clone();
-    let BrokeredUpstreamCredentials { credential_ref, query } = credentials
-        .substitute_upstream(
-            &request.domain,
-            request.ai_provider,
-            &mut headers,
-            request.query.as_deref(),
-        )
+    let http = event.http.as_ref();
+    let target = UpstreamTarget {
+        domain: &request.domain,
+        ai_provider: request.ai_provider,
+        method: http.and_then(|http| http.method.as_deref()).unwrap_or_default(),
+        path: http.and_then(|http| http.path.as_deref()).unwrap_or_default(),
+    };
+    let BrokeredUpstreamCredentials {
+        credential_ref,
+        query,
+        bound,
+    } = credentials
+        .substitute_upstream(target, &mut headers, request.query.as_deref())
         .map_err(SecurityActionError::new)?;
 
     Ok(MaterializedHttpRequest {
         headers,
         query,
         credential_ref: event.credential_ref.clone().or(credential_ref),
+        bound,
     })
 }
 

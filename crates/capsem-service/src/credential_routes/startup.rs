@@ -69,21 +69,18 @@ pub(crate) fn import_host_inputs() -> Result<usize, String> {
             provider,
             value,
             storage,
+            binding: None,
         });
     }
     let count = credentials.len();
     for request in credentials {
-        let provider = CredentialProvider::all()
-            .iter()
-            .copied()
-            .find(|provider| provider.as_str() == request.provider.as_str())
-            .expect("shared provider spelling");
-        let persistence = match request.storage {
-            api::CredentialStorage::File => CredentialPersistence::File,
-            api::CredentialStorage::Memory => CredentialPersistence::Memory,
-        };
-        let reference = CredentialStore::global().inject(provider, &request.value, persistence)?;
-        info!(provider = provider.as_str(), credential_ref = %reference, "host credential injected");
+        let reference = super::inject_request(&request)?;
+        info!(
+            provider = request.provider.as_str(),
+            binding = request.binding.as_deref(),
+            credential_ref = %reference,
+            "host credential injected"
+        );
     }
     Ok(count)
 }
