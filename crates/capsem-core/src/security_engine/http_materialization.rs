@@ -1,5 +1,6 @@
 //! The single provider-scoped runtime credential materialization boundary.
 use super::*;
+use crate::credential_broker::UpstreamTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpRequestSecurityEvent {

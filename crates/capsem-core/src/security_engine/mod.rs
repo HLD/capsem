@@ -11,9 +11,7 @@ use serde::ser::{SerializeStruct, Serializer};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::credential_broker::{
-    BrokeredUpstreamCredentials, CredentialInjection, CredentialObservation, UpstreamTarget,
-};
+use crate::credential_broker::{BrokeredUpstreamCredentials, CredentialInjection, CredentialObservation};
 use crate::net::ai_traffic::provider::ProviderKind;
 use crate::net::policy_config::{
     CompiledSecurityRule, DetectionLevel, PolicyActionId, PolicySubject, PolicySubjectValue, SecurityPluginConfig,
