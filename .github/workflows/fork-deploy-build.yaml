@@ -1,0 +1,89 @@
+# Fork-only: build an x86_64 Linux .deb from deploy/proxmox and attach it to a
+# GitHub Release on this fork. Not part of upstream's release pipeline.
+#
+# The deploy branch changes host crates only, so the guest runtime (kernel,
+# initrd, rootfs) is taken from upstream's public stable manifest rather than
+# rebuilt. No Tauri signing secrets exist on the fork, so the package rail
+# signs with a throwaway dev key.
+name: Fork deploy build
+
+on:
+  push:
+    branches: [deploy/proxmox]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-deploy-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-x86_64:
+    if: github.repository != 'google/capsem'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      MANIFEST_URL: https://release.capsem.org/assets/stable/manifest.json
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
+        with:
+          toolchain: 1.97.1
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: fork-linux-package-x86_64
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - run: uv sync --project build_system --frozen
+
+      - name: Fetch upstream stable x86_64 runtime
+        uses: ./.github/actions/fetch-release-inputs
+        with:
+          manifest-url: ${{ env.MANIFEST_URL }}
+          kind: runtime
+          architecture: x86_64
+          output: cache/target/binary-selected-runtime
+
+      - name: Stage runtime inputs
+        run: |
+          uv run --project build_system --frozen python build_system/scripts/release/stage-release-test-inputs.py \
+            --input-dir cache/target/binary-selected-runtime \
+            --assets-dir cache/target/package-content/assets
+
+      - name: Build Linux package
+        env:
+          CAPSEM_INSTALL_CHANNEL: stable
+          CAPSEM_INSTALL_MANIFEST_URL: ${{ env.MANIFEST_URL }}
+        run: |
+          uv run --project build_system --frozen capsem-gate cross-compile x86_64 \
+            --content-root cache/target/package-content \
+            --defer-proof
+
+      - name: Collect package
+        run: |
+          mkdir -p release-artifacts
+          cp cache/target/packages/*.deb release-artifacts/
+          (cd release-artifacts && sha256sum *.deb > SHA256SUMS)
+          ls -lh release-artifacts/
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: capsem-linux-x86_64-${{ github.sha }}
+          path: release-artifacts/
+
+      - name: Publish fork release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="proxmox-$(git rev-parse --short=12 HEAD)"
+          gh release create "$tag" release-artifacts/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Proxmox deploy build $tag" \
+            --notes "x86_64 Linux build of ${GITHUB_REF_NAME} at ${GITHUB_SHA}. Runtime assets from upstream stable. Dev-key signed; not an upstream release." \
+            --prerelease
