@@ -49,6 +49,11 @@ pub(super) const DNS_FIXTURES: &[&str] = &[
     "model.capsem.test",
     "ollama.capsem.test",
     "mcp.capsem.test",
+    // Destinations for host-declared HTTP credential binding proof: two bound
+    // hosts with different limits and one host no binding names.
+    "api.binding.capsem.test",
+    "limited.binding.capsem.test",
+    "unbound.capsem.test",
     "api.openai.com",
     "api.anthropic.com",
     "platform.claude.com",
