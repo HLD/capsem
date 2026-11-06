@@ -1,4 +1,5 @@
 use super::*;
+use crate::{credential_store_account, CredentialProvider};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -115,7 +116,7 @@ fn durable_store_child_writer() {
     for index in 0..CHILD_WRITER_ENTRIES {
         disk_store_write(
             Path::new(path),
-            CredentialProvider::OpenAi,
+            &CredentialProvider::OpenAi.into(),
             &format!("{prefix}-{index}"),
             &format!("secret-{prefix}-{index}"),
         )
@@ -194,7 +195,7 @@ impl WaitOutputRef for std::process::Child {
 fn store_lock_file_is_owner_only_and_never_the_store_itself() {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("nested").join("credential-store.json");
-    disk_store_write(&store, CredentialProvider::Github, "ref-1", "secret-1").unwrap();
+    disk_store_write(&store, &CredentialProvider::Github.into(), "ref-1", "secret-1").unwrap();
     let lock = store.parent().unwrap().join(".credential-store.json.lock");
     assert!(
         lock.exists(),
@@ -203,7 +204,7 @@ fn store_lock_file_is_owner_only_and_never_the_store_itself() {
     assert_eq!(mode_of(&lock), 0o600);
     assert_eq!(mode_of(&store), 0o600);
     assert_eq!(
-        disk_store_read(&store, CredentialProvider::Github, "ref-1").unwrap(),
+        disk_store_read(&store, &CredentialProvider::Github.into(), "ref-1").unwrap(),
         "secret-1"
     );
 }
@@ -217,9 +218,9 @@ fn durable_store_refuses_new_entries_after_capacity() {
         entries.insert(format!("openai:ref-{index}"), "secret".to_string());
     }
     write_secret_file(&path, serde_json::to_string(&entries).unwrap().as_bytes()).unwrap();
-    assert!(disk_store_write(&path, CredentialProvider::OpenAi, "new-ref", "new-secret").is_err());
+    assert!(disk_store_write(&path, &CredentialProvider::OpenAi.into(), "new-ref", "new-secret").is_err());
     assert_eq!(disk_store_load(&path).unwrap().len(), MAX_CAPTURED_CREDENTIALS);
-    disk_store_write(&path, CredentialProvider::OpenAi, "ref-0", "secret").unwrap();
+    disk_store_write(&path, &CredentialProvider::OpenAi.into(), "ref-0", "secret").unwrap();
 }
 
 #[test]
@@ -228,10 +229,61 @@ fn durable_store_refuses_oversized_secret() {
     let path = dir.path().join("credential-store.json");
     assert!(disk_store_write(
         &path,
-        CredentialProvider::OpenAi,
+        &CredentialProvider::OpenAi.into(),
         "new-ref",
         &"x".repeat(MAX_CREDENTIAL_BYTES + 1)
     )
     .is_err());
     assert!(!path.exists());
+}
+
+#[test]
+fn binding_accounts_persist_and_hydrate_beside_provider_accounts() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("credential-store.json");
+    let binding = CredentialNamespace::binding("stripe").unwrap();
+    disk_store_write(&path, &binding, "credential:blake3:aa", "binding-secret").unwrap();
+    disk_store_write(
+        &path,
+        &CredentialProvider::Github.into(),
+        "credential:blake3:aa",
+        "github-secret",
+    )
+    .unwrap();
+    assert_eq!(
+        disk_store_read(&path, &binding, "credential:blake3:aa").unwrap(),
+        "binding-secret"
+    );
+    assert!(disk_store_read(
+        &path,
+        &CredentialNamespace::binding("other").unwrap(),
+        "credential:blake3:aa"
+    )
+    .is_err());
+
+    let mut hydrated = disk_store_hydrate(&path).unwrap();
+    hydrated.sort_by_key(|(namespace, _, _)| namespace.as_str().into_owned());
+    assert_eq!(
+        hydrated,
+        vec![
+            (
+                CredentialProvider::Github.into(),
+                "credential:blake3:aa".into(),
+                "github-secret".into()
+            ),
+            (binding, "credential:blake3:aa".into(), "binding-secret".into()),
+        ]
+    );
+}
+
+#[test]
+fn hydrate_skips_accounts_this_build_does_not_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("credential-store.json");
+    let map = HashMap::from([
+        ("http:Bad:credential:blake3:aa".to_string(), "x".to_string()),
+        ("future:credential:blake3:aa".to_string(), "y".to_string()),
+    ]);
+    write_secret_file(&path, serde_json::to_string(&map).unwrap().as_bytes()).unwrap();
+    assert!(disk_store_hydrate(&path).unwrap().is_empty());
 }

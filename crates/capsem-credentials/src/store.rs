@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use crate::durable;
 use crate::provider::credential_provider_from_str;
-use crate::{is_broker_reference, CredentialProvider};
+use crate::{is_broker_reference, CredentialNamespace, CredentialProvider};
 
 mod injection;
 pub use injection::CredentialPersistence;
@@ -84,7 +84,8 @@ impl CredentialStore {
             .durable_lock
             .lock()
             .map_err(|_| "credential durable store lock poisoned".to_string())?;
-        if let Some(existing) = self.cache_get(provider, credential_ref)? {
+        let namespace = CredentialNamespace::from(provider);
+        if let Some(existing) = self.cache_get(&namespace, credential_ref)? {
             if existing == raw_value {
                 return Ok(false);
             }
@@ -102,8 +103,8 @@ impl CredentialStore {
         {
             return Err("credential runtime store is full".to_string());
         }
-        self.cache_insert(provider, credential_ref, raw_value)?;
-        if let Err(error) = durable::write(provider, credential_ref, raw_value) {
+        self.cache_insert(&namespace, credential_ref, raw_value)?;
+        if let Err(error) = durable::write(&namespace, credential_ref, raw_value) {
             self.mark_error(error.clone());
             warn!(
                 provider = provider.as_str(),
@@ -122,22 +123,32 @@ impl CredentialStore {
     }
 
     pub fn resolve(&self, provider: CredentialProvider, credential_ref: &str) -> Result<Option<String>, String> {
+        self.resolve_in(&provider.into(), credential_ref)
+    }
+
+    /// Resolve material injected for one host-declared HTTP binding. A
+    /// reference issued for any other binding or provider is not found here.
+    pub fn resolve_bound(&self, binding: &str, credential_ref: &str) -> Result<Option<String>, String> {
+        self.resolve_in(&CredentialNamespace::binding(binding)?, credential_ref)
+    }
+
+    fn resolve_in(&self, namespace: &CredentialNamespace, credential_ref: &str) -> Result<Option<String>, String> {
         if !is_broker_reference(credential_ref) {
             return Ok(None);
         }
-        if let Some(raw_value) = self.cache_get(provider, credential_ref)? {
+        if let Some(raw_value) = self.cache_get(namespace, credential_ref)? {
             return Ok(Some(raw_value));
         }
         let _durable_guard = self
             .durable_lock
             .lock()
             .map_err(|_| "credential durable store lock poisoned".to_string())?;
-        match durable::read(provider, credential_ref) {
+        match durable::read(namespace, credential_ref) {
             Ok(raw_value) => {
-                self.cache_insert(provider, credential_ref, &raw_value)?;
+                self.cache_insert(namespace, credential_ref, &raw_value)?;
                 self.clear_error();
                 info!(
-                    provider = provider.as_str(),
+                    namespace = %namespace.as_str(),
                     credential_ref, "credential store: hydrated credential on runtime miss"
                 );
                 Ok(Some(raw_value))
@@ -150,7 +161,10 @@ impl CredentialStore {
     }
 
     pub fn replay_available_in_memory(&self, provider: CredentialProvider, credential_ref: &str) -> bool {
-        self.cache_get(provider, credential_ref).ok().flatten().is_some()
+        self.cache_get(&provider.into(), credential_ref)
+            .ok()
+            .flatten()
+            .is_some()
     }
 
     pub fn hydrate_from_durable_store(&self) -> Result<usize, String> {
@@ -171,8 +185,8 @@ impl CredentialStore {
                 .cache
                 .lock()
                 .map_err(|_| "credential runtime cache lock poisoned".to_string())?;
-            for (provider, credential_ref, raw_value) in entries {
-                cache.insert(credential_store_key(provider, &credential_ref), raw_value);
+            for (namespace, credential_ref, raw_value) in entries {
+                cache.insert(namespace.account(&credential_ref), raw_value);
             }
         }
         self.mark_hydrated(count);
@@ -210,20 +224,25 @@ impl CredentialStore {
         *self.status.lock().unwrap() = CredentialStoreStatusState::default();
     }
 
-    fn cache_insert(&self, provider: CredentialProvider, credential_ref: &str, raw_value: &str) -> Result<(), String> {
+    fn cache_insert(
+        &self,
+        namespace: &CredentialNamespace,
+        credential_ref: &str,
+        raw_value: &str,
+    ) -> Result<(), String> {
         self.cache
             .lock()
             .map_err(|_| "credential runtime cache lock poisoned".to_string())?
-            .insert(credential_store_key(provider, credential_ref), raw_value.to_string());
+            .insert(namespace.account(credential_ref), raw_value.to_string());
         Ok(())
     }
 
-    fn cache_get(&self, provider: CredentialProvider, credential_ref: &str) -> Result<Option<String>, String> {
+    fn cache_get(&self, namespace: &CredentialNamespace, credential_ref: &str) -> Result<Option<String>, String> {
         Ok(self
             .cache
             .lock()
             .map_err(|_| "credential runtime cache lock poisoned".to_string())?
-            .get(&credential_store_key(provider, credential_ref))
+            .get(&namespace.account(credential_ref))
             .cloned())
     }
 
@@ -283,11 +302,7 @@ pub fn credential_store_status() -> CredentialStoreStatus {
 }
 
 pub fn credential_store_account(provider: CredentialProvider, credential_ref: &str) -> String {
-    format!("{}:{credential_ref}", provider.as_str())
-}
-
-fn credential_store_key(provider: CredentialProvider, credential_ref: &str) -> String {
-    credential_store_account(provider, credential_ref)
+    CredentialNamespace::from(provider).account(credential_ref)
 }
 
 fn now_unix_ms() -> u64 {

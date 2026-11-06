@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tracing::warn;
 
-use crate::provider::credential_provider_from_str;
-use crate::{credential_store_account, CredentialProvider};
+use crate::CredentialNamespace;
 
 pub const STORE_PATH_ENV: &str = "CAPSEM_CREDENTIAL_STORE_PATH";
 pub(crate) const MAX_CAPTURED_CREDENTIALS: usize = 1024;
@@ -20,24 +19,24 @@ pub(crate) fn backend_name() -> &'static str {
     "disk"
 }
 
-pub(crate) fn write(provider: CredentialProvider, credential_ref: &str, raw_value: &str) -> Result<(), String> {
+pub(crate) fn write(namespace: &CredentialNamespace, credential_ref: &str, raw_value: &str) -> Result<(), String> {
     disk_store_write(
         store_path_override().unwrap_or_else(default_store_path).as_path(),
-        provider,
+        namespace,
         credential_ref,
         raw_value,
     )
 }
 
-pub(crate) fn read(provider: CredentialProvider, credential_ref: &str) -> Result<String, String> {
+pub(crate) fn read(namespace: &CredentialNamespace, credential_ref: &str) -> Result<String, String> {
     disk_store_read(
         store_path_override().unwrap_or_else(default_store_path).as_path(),
-        provider,
+        namespace,
         credential_ref,
     )
 }
 
-pub(crate) fn hydrate() -> Result<Vec<(CredentialProvider, String, String)>, String> {
+pub(crate) fn hydrate() -> Result<Vec<(CredentialNamespace, String, String)>, String> {
     disk_store_hydrate(store_path_override().unwrap_or_else(default_store_path).as_path())
 }
 
@@ -55,7 +54,7 @@ fn default_store_path() -> PathBuf {
 
 fn disk_store_write(
     path: &Path,
-    provider: CredentialProvider,
+    namespace: &CredentialNamespace,
     credential_ref: &str,
     raw_value: &str,
 ) -> Result<(), String> {
@@ -64,7 +63,7 @@ fn disk_store_write(
     }
     let _guard = StoreLock::exclusive(path)?;
     let mut map = disk_store_load(path)?;
-    let account = credential_store_account(provider, credential_ref);
+    let account = namespace.account(credential_ref);
     if !map.contains_key(&account) && map.len() >= MAX_CAPTURED_CREDENTIALS {
         return Err("credential durable store is full".to_string());
     }
@@ -74,25 +73,25 @@ fn disk_store_write(
     write_secret_file(path, json.as_bytes())
 }
 
-fn disk_store_read(path: &Path, provider: CredentialProvider, credential_ref: &str) -> Result<String, String> {
+fn disk_store_read(path: &Path, namespace: &CredentialNamespace, credential_ref: &str) -> Result<String, String> {
     let _guard = StoreLock::shared(path)?;
     let map = disk_store_load(path)?;
-    let account = credential_store_account(provider, credential_ref);
+    let account = namespace.account(credential_ref);
     map.get(&account)
         .cloned()
         .ok_or_else(|| format!("credential reference not found in disk store: {account}"))
 }
 
-fn disk_store_hydrate(path: &Path) -> Result<Vec<(CredentialProvider, String, String)>, String> {
+fn disk_store_hydrate(path: &Path) -> Result<Vec<(CredentialNamespace, String, String)>, String> {
     let _guard = StoreLock::shared(path)?;
     let map = disk_store_load(path)?;
     let mut entries = Vec::new();
     for (account, raw_value) in map {
-        let Some((provider, credential_ref)) = parse_store_account(&account) else {
+        let Some((namespace, credential_ref)) = CredentialNamespace::parse_account(&account) else {
             warn!(account, "credential store: ignoring malformed disk account");
             continue;
         };
-        entries.push((provider, credential_ref.to_string(), raw_value));
+        entries.push((namespace, credential_ref.to_string(), raw_value));
     }
     Ok(entries)
 }
@@ -147,11 +146,6 @@ fn disk_store_load(path: &Path) -> Result<HashMap<String, String>, String> {
         return Ok(HashMap::new());
     }
     serde_json::from_str(&text).map_err(|error| format!("parse credential disk store: {error}"))
-}
-
-fn parse_store_account(account: &str) -> Option<(CredentialProvider, &str)> {
-    let (provider, credential_ref) = account.split_once(':')?;
-    Some((credential_provider_from_str(provider)?, credential_ref))
 }
 
 /// Write the plaintext credential store owner-only and atomically.
