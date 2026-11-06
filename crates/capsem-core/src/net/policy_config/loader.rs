@@ -371,6 +371,9 @@ fn merge_corp_files(files: impl IntoIterator<Item = SettingsFile>) -> SettingsFi
         for (target, override_config) in file.network.upstream_overrides {
             corp.network.upstream_overrides.entry(target).or_insert(override_config);
         }
+        // Credential bindings: first corp path wins per binding id.
+        corp.credential_bindings =
+            capsem_config::CredentialBindings::merged(&file.credential_bindings, &corp.credential_bindings);
     }
     corp
 }

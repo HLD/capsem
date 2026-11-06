@@ -546,3 +546,30 @@ fn batch_update_settings_empty_changes_is_noop() {
     let applied = batch_update_settings(&changes).unwrap();
     assert!(applied.is_empty());
 }
+
+#[test]
+fn policy_files_carry_user_and_first_corp_credential_bindings() {
+    let dir = tempfile::tempdir().unwrap();
+    let user = dir.path().join("settings.toml");
+    let system = dir.path().join("system-corp.toml");
+    let provisioned = dir.path().join("user-corp.toml");
+    let binding = |id: &str, host: &str| {
+        format!("[credential_bindings.{id}]\nhosts = [{host:?}]\nplacement = {{ header = \"x-api-key\" }}\n")
+    };
+    std::fs::write(&user, binding("user-svc", "api.user-svc.test")).unwrap();
+    std::fs::write(&system, binding("shared", "api.system.test")).unwrap();
+    std::fs::write(
+        &provisioned,
+        binding("shared", "api.provisioned.test") + &binding("extra", "api.extra.test"),
+    )
+    .unwrap();
+    let (user, corp) = policy_files_from_paths(Some(&user), &[system, provisioned]).unwrap();
+    assert!(user.credential_bindings.get("user-svc").is_some());
+    assert!(corp.credential_bindings.get("extra").is_some());
+    let shared = corp.credential_bindings.get("shared").unwrap();
+    assert!(
+        shared.matches_host("api.system.test"),
+        "the first corp path wins per binding id"
+    );
+    assert!(!shared.matches_host("api.provisioned.test"));
+}
