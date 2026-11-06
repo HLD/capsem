@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
+use capsem_config::CredentialBindings;
 pub use capsem_credentials::{
     broker_reference_replay_available, credential_store_account, credential_store_status,
     hydrate_credential_runtime_cache_from_durable_store, is_broker_reference, resolve_broker_reference_for_provider,
@@ -451,12 +452,27 @@ pub struct BrokeredUpstreamCredentials {
     pub query: Option<String>,
 }
 
+/// Built-in provider destinations keep their existing path unchanged.
+/// Destinations without one use host-declared `bindings`; with no binding for
+/// the host, any reference is refused as before.
 pub fn substitute_brokered_upstream_credentials(
     target: UpstreamTarget<'_>,
+    bindings: &CredentialBindings,
     headers: &mut http::HeaderMap,
     query: Option<&str>,
 ) -> Result<BrokeredUpstreamCredentials, String> {
     let provider_hint = credential_provider_for_request(target.domain, target.ai_provider);
+    if provider_hint.is_none() {
+        let resolve = |binding: &str, credential_ref: &str| {
+            CredentialStore::global()
+                .resolve_bound(binding, credential_ref)
+                .ok()
+                .flatten()
+        };
+        if let Some(bound) = http_binding::substitute_bound(target, bindings, &resolve, headers, query)? {
+            return Ok(bound);
+        }
+    }
     let mut credential_ref = None;
 
     for value in headers.values_mut() {
@@ -869,6 +885,8 @@ fn unquote(value: &str) -> &str {
 fn json_escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
+
+mod http_binding;
 
 #[cfg(test)]
 mod tests;

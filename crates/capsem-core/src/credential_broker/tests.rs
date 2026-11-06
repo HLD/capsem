@@ -359,7 +359,12 @@ fn brokered_reference_does_not_leak_secret_to_unbound_domain() {
         http::header::AUTHORIZATION,
         http::HeaderValue::from_str(&format!("Bearer {reference}")).unwrap(),
     );
-    let result = substitute_brokered_upstream_credentials(get_target("evil.example.com", None), &mut headers, None);
+    let result = substitute_brokered_upstream_credentials(
+        get_target("evil.example.com", None),
+        &CredentialBindings::default(),
+        &mut headers,
+        None,
+    );
 
     assert!(
         result.is_err(),
@@ -399,6 +404,7 @@ fn ollama_destination_cannot_redeem_openai_reference() {
 
     let result = substitute_brokered_upstream_credentials(
         get_target("127.0.0.1", Some(ProviderKind::Ollama)),
+        &CredentialBindings::default(),
         &mut headers,
         None,
     );
@@ -411,6 +417,7 @@ fn ollama_destination_cannot_redeem_openai_reference() {
 
     substitute_brokered_upstream_credentials(
         get_target("api.openai.com", Some(ProviderKind::OpenAi)),
+        &CredentialBindings::default(),
         &mut headers,
         None,
     )
@@ -441,7 +448,13 @@ fn brokered_reference_substitutes_for_matching_provider_domain() {
         http::HeaderValue::from_str(&format!("Bearer {}", brokered.credential_ref)).unwrap(),
     );
     // The Anthropic reference sent to an Anthropic domain resolves to the secret.
-    substitute_brokered_upstream_credentials(get_target("api.anthropic.com", None), &mut headers, None).unwrap();
+    substitute_brokered_upstream_credentials(
+        get_target("api.anthropic.com", None),
+        &CredentialBindings::default(),
+        &mut headers,
+        None,
+    )
+    .unwrap();
     let auth = headers.get(http::header::AUTHORIZATION).unwrap().to_str().unwrap();
     assert_eq!(auth, "Bearer sk-ant-legit-value");
 }

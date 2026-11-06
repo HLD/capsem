@@ -69,6 +69,7 @@ fn dispatch(request: ProxyCredentialRequest) -> Result<ProxyCredentialResponse, 
             };
             let substituted = capsem_core::credential_broker::substitute_brokered_upstream_credentials(
                 target,
+                &capsem_config::CredentialBindings::default(),
                 &mut headers,
                 query.as_deref(),
             )?;

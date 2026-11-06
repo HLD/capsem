@@ -80,7 +80,14 @@ impl ProxyCredentials for LocalProxyCredentials {
         headers: &mut http::HeaderMap,
         query: Option<&str>,
     ) -> Result<BrokeredUpstreamCredentials, String> {
-        crate::credential_broker::substitute_brokered_upstream_credentials(target, headers, query)
+        // The in-process adapter holds no host-declared bindings, so it can
+        // never materialize one; bound substitution runs only in the service.
+        crate::credential_broker::substitute_brokered_upstream_credentials(
+            target,
+            &capsem_config::CredentialBindings::default(),
+            headers,
+            query,
+        )
     }
 }
 
