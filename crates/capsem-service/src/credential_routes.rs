@@ -12,18 +12,7 @@ pub(crate) async fn inject(
         payload.map_err(|_| AppError::new(StatusCode::BAD_REQUEST, "invalid credential injection request".into()))?;
     let storage = request.storage;
     let reference = state
-        .off_worker(move |_| {
-            let persistence = match storage {
-                api::CredentialStorage::File => CredentialPersistence::File,
-                api::CredentialStorage::Memory => CredentialPersistence::Memory,
-            };
-            let provider = CredentialProvider::all()
-                .iter()
-                .copied()
-                .find(|provider| provider.as_str() == request.provider.as_str())
-                .expect("shared provider spelling");
-            CredentialStore::global().inject(provider, &request.value, persistence)
-        })
+        .off_worker(move |_| inject_request(&request))
         .await?
         .map_err(|error| AppError::new(StatusCode::BAD_REQUEST, error))?;
     if storage == api::CredentialStorage::Memory {
@@ -48,6 +37,37 @@ pub(crate) async fn inject(
         credential_ref: reference,
         storage,
     }))
+}
+
+/// The one injection path for routes and startup inputs. Built-in providers
+/// inject by name; `http` material needs a binding the host's current settings
+/// or corp policy declares, and is usable only through that binding.
+pub(crate) fn inject_request(request: &api::CredentialInjectRequest) -> Result<String, String> {
+    let persistence = match request.storage {
+        api::CredentialStorage::File => CredentialPersistence::File,
+        api::CredentialStorage::Memory => CredentialPersistence::Memory,
+    };
+    match (request.provider, request.binding.as_deref()) {
+        (api::CredentialInjectProvider::Http, Some(binding)) => {
+            let (settings, corp) = capsem_core::net::policy_config::load_policy_files()?;
+            let bindings =
+                capsem_config::CredentialBindings::merged(&settings.credential_bindings, &corp.credential_bindings);
+            if bindings.get(binding).is_none() {
+                return Err("unknown credential binding".into());
+            }
+            CredentialStore::global().inject_bound(binding, &request.value, persistence)
+        }
+        (api::CredentialInjectProvider::Http, None) => Err("http credentials require a binding".into()),
+        (_, Some(_)) => Err("a credential binding applies only to provider http".into()),
+        (provider, None) => {
+            let provider = CredentialProvider::all()
+                .iter()
+                .copied()
+                .find(|known| known.as_str() == provider.as_str())
+                .ok_or("unsupported credential provider")?;
+            CredentialStore::global().inject(provider, &request.value, persistence)
+        }
+    }
 }
 
 /// Called before declaring readiness, including after resume/restart. No

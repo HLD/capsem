@@ -13,6 +13,7 @@ class CredentialInjectRequest(Model):
     private_input = True
     nonnullable_optional = frozenset(['storage'])
     model_config = ConfigDict(strict=True, populate_by_name=True, extra="forbid", hide_input_in_errors=True)
+    binding: StrictStr | None = None
     provider: CredentialInjectProvider
     storage: CredentialStorage | None = None
     value: StrictStr = Field(repr=False)

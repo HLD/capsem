@@ -4,6 +4,7 @@ import type { CredentialInjectProvider } from "./CredentialInjectProvider.js";
 import type { CredentialStorage } from "./CredentialStorage.js";
 
 export interface CredentialInjectRequest {
+  "binding"?: string | null;
   "provider": CredentialInjectProvider;
   "storage"?: CredentialStorage;
   "value": string;

@@ -8,4 +8,5 @@ export enum CredentialInjectProvider {
   OPENAI = "openai",
   GITHUB = "github",
   MCP = "mcp",
+  HTTP = "http",
 }

@@ -4805,7 +4805,8 @@
           "google",
           "openai",
           "github",
-          "mcp"
+          "mcp",
+          "http"
         ]
       },
       "CredentialInjectRequest": {
@@ -4815,6 +4816,13 @@
           "value"
         ],
         "properties": {
+          "binding": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required with provider `http`, refused otherwise: the id of a\n`[credential_bindings.<id>]` entry in the host's settings or corp\npolicy. The returned reference is usable only through that binding."
+          },
           "provider": {
             "$ref": "#/components/schemas/CredentialInjectProvider"
           },
