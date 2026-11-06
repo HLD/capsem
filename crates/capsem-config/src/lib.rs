@@ -6,6 +6,7 @@
 
 mod condition;
 mod content_filter;
+mod credential_binding;
 mod lint;
 mod managed_sessions;
 pub mod mcp;
@@ -21,6 +22,7 @@ mod types;
 mod validation;
 
 pub use content_filter::{ContentDirection, ContentFilterConfig};
+pub use credential_binding::{CredentialBinding, CredentialBindings, CredentialPlacement};
 pub use lint::*;
 pub use managed_sessions::ManagedSessionPolicy;
 pub use private_pool::{PrivatePool, NETWORK_PREFIX_LEN};
