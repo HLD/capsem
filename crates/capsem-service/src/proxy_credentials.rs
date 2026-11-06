@@ -2,6 +2,7 @@
 
 use std::io;
 use std::os::unix::net::UnixStream;
+use std::sync::Arc;
 
 use capsem_foundation::ipc_channel;
 use capsem_proto::proxy_credentials::{
@@ -12,7 +13,12 @@ use capsem_proto::proxy_credentials::{
 use capsem_core::credential_broker::{BrokeredCredential, CredentialObservation, CredentialProvider, UpstreamTarget};
 use capsem_core::net::ai_traffic::provider::ProviderKind;
 
-pub(crate) async fn serve(stream: UnixStream) -> Result<(), String> {
+/// Serve one confined proxy's credential capability. Substitution reads the
+/// session's current credential bindings from `policy` for each request.
+pub(crate) async fn serve(
+    stream: UnixStream,
+    policy: tokio::sync::watch::Receiver<Arc<crate::upstream_broker::BrokerPolicy>>,
+) -> Result<(), String> {
     let (sender, receiver) =
         ipc_channel::channel_from_std::<ProxyCredentialResponse, ProxyCredentialRequest>(stream).map_err(io_string)?;
     loop {
@@ -25,7 +31,8 @@ pub(crate) async fn serve(stream: UnixStream) -> Result<(), String> {
         let response = if let Err(error) = request.validate() {
             rejected(request_id, error.to_string())
         } else {
-            match tokio::task::spawn_blocking(move || dispatch(request)).await {
+            let policy = Arc::clone(&*policy.borrow());
+            match tokio::task::spawn_blocking(move || dispatch(request, &policy)).await {
                 Ok(Ok(response)) => response,
                 Ok(Err(error)) => rejected(request_id, error),
                 Err(error) => rejected(request_id, format!("credential broker task failed: {error}")),
@@ -38,7 +45,10 @@ pub(crate) async fn serve(stream: UnixStream) -> Result<(), String> {
     }
 }
 
-fn dispatch(request: ProxyCredentialRequest) -> Result<ProxyCredentialResponse, String> {
+fn dispatch(
+    request: ProxyCredentialRequest,
+    policy: &crate::upstream_broker::BrokerPolicy,
+) -> Result<ProxyCredentialResponse, String> {
     match request {
         ProxyCredentialRequest::Capture {
             request_id,
@@ -69,7 +79,7 @@ fn dispatch(request: ProxyCredentialRequest) -> Result<ProxyCredentialResponse, 
             };
             let substituted = capsem_core::credential_broker::substitute_brokered_upstream_credentials(
                 target,
-                &capsem_config::CredentialBindings::default(),
+                policy.credential_bindings(),
                 &mut headers,
                 query.as_deref(),
             )?;

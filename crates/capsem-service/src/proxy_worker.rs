@@ -802,9 +802,13 @@ impl ServiceState {
         Ok(())
     }
 
-    pub(crate) async fn grant_proxy_credentials(&self, worker: &ProxyWorker) -> Result<()> {
+    pub(crate) async fn grant_proxy_credentials(
+        &self,
+        worker: &ProxyWorker,
+        policy: tokio::sync::watch::Receiver<std::sync::Arc<crate::upstream_broker::BrokerPolicy>>,
+    ) -> Result<()> {
         let (service, proxy) = UnixStream::pair().context("create proxy credential capability")?;
-        let serving = tokio::spawn(crate::proxy_credentials::serve(service));
+        let serving = tokio::spawn(crate::proxy_credentials::serve(service, policy));
         if let Err(error) = worker.grant(ProxyCapability::Credential, proxy.into()).await {
             serving.abort();
             let _ = serving.await;
