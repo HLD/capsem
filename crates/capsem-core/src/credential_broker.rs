@@ -611,6 +611,22 @@ fn collect_query_brokered_references(
     }
 }
 
+/// Bindings may only name destinations no built-in provider owns, so the
+/// built-in path and a binding can never both claim one host.
+pub fn validate_credential_bindings(bindings: &CredentialBindings) -> Result<(), String> {
+    for (id, binding) in bindings.iter() {
+        if let Some(host) = binding
+            .host_names()
+            .find(|host| credential_provider_for_request(host, None).is_some())
+        {
+            return Err(format!(
+                "credential_bindings.{id} names {host:?}, which a built-in credential provider owns"
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn credential_provider_for_request(
     domain: &str,
     ai_provider: Option<ProviderKind>,

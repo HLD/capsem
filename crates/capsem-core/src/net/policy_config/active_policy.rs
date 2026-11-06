@@ -20,7 +20,7 @@ use super::provider_profile::{ModelEndpointRegistry, ProviderRuleProfile};
 use super::security_rule_profile::{SecurityPluginConfig, SecurityRuleProfile, SecurityRuleSet};
 use super::types::{NetworkConfig, SettingsFile};
 use crate::mcp::policy::McpConfig;
-use capsem_config::validate_policy_target;
+use capsem_config::{validate_policy_target, CredentialBindings};
 
 mod toggles;
 
@@ -38,6 +38,9 @@ pub struct ActivePolicyFile {
     /// The user's MCP servers with corp's laid over them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp: Option<McpConfig>,
+    /// The user's credential bindings with corp's laid over them by id.
+    #[serde(default, skip_serializing_if = "CredentialBindings::is_empty")]
+    pub credential_bindings: CredentialBindings,
 }
 
 /// Every runtime concern compiled from one validated active-policy value.
@@ -50,6 +53,7 @@ pub struct CompiledActivePolicy {
     pub plugins: BTreeMap<String, SecurityPluginConfig>,
     pub model_endpoints: ModelEndpointRegistry,
     pub mcp: McpConfig,
+    pub credential_bindings: CredentialBindings,
 }
 
 /// Digest of an active policy's serialized bytes, as `blake3:<hex>`.
@@ -104,6 +108,7 @@ impl ActivePolicyFile {
             plugins: merge_plugin_policy(settings, corp),
             network,
             mcp: McpConfig::merged(settings.mcp.as_ref(), corp.mcp.as_ref()),
+            credential_bindings: CredentialBindings::merged(&settings.credential_bindings, &corp.credential_bindings),
         };
         active.validate()?;
         Ok(active)
@@ -119,6 +124,7 @@ impl ActivePolicyFile {
         if let Some(mcp) = &self.mcp {
             mcp.validate("active_policy")?;
         }
+        crate::credential_broker::validate_credential_bindings(&self.credential_bindings)?;
         Ok(())
     }
 
@@ -146,6 +152,7 @@ impl ActivePolicyFile {
             plugins: self.plugins.clone(),
             model_endpoints: merged.model_endpoints,
             mcp: self.mcp.clone().unwrap_or_default(),
+            credential_bindings: self.credential_bindings.clone(),
         })
     }
 
