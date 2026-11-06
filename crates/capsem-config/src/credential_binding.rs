@@ -50,6 +50,19 @@ impl TryFrom<BTreeMap<String, CredentialBinding>> for CredentialBindings {
 }
 
 impl CredentialBindings {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The user's bindings with corp's laid over them: a corp binding replaces
+    /// the user's binding of the same id, so an admin can lock where a
+    /// credential may go. Mirrors `McpConfig::merged` for servers.
+    pub fn merged(user: &Self, corp: &Self) -> Self {
+        let mut merged = user.0.clone();
+        merged.extend(corp.0.iter().map(|(id, binding)| (id.clone(), binding.clone())));
+        Self(merged)
+    }
+
     pub fn get(&self, id: &str) -> Option<&CredentialBinding> {
         self.0.get(id)
     }

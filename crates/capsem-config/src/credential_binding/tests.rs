@@ -240,3 +240,58 @@ placement = { query = "k" }
     assert_eq!(ids, vec!["alpha", "zeta"]);
     assert_eq!(bindings.for_host("evil.test").count(), 0);
 }
+
+#[test]
+fn corp_bindings_replace_user_bindings_of_the_same_id() {
+    let user = parse(
+        r#"
+[credential_bindings.stripe]
+hosts = ["api.stripe.com"]
+placement = { header = "authorization", scheme = "Bearer" }
+
+[credential_bindings.personal]
+hosts = ["api.personal.test"]
+placement = { query = "k" }
+"#,
+    )
+    .unwrap();
+    let corp = parse(
+        r#"
+[credential_bindings.stripe]
+hosts = ["api.stripe.com"]
+placement = { header = "authorization", scheme = "Bearer" }
+methods = ["GET"]
+"#,
+    )
+    .unwrap();
+    let merged = CredentialBindings::merged(&user, &corp);
+    let ids: Vec<_> = merged.iter().map(|(id, _)| id).collect();
+    assert_eq!(ids, vec!["personal", "stripe"]);
+    let stripe = merged.get("stripe").unwrap();
+    assert!(stripe.admits_request("GET", "/v1/x"));
+    assert!(!stripe.admits_request("POST", "/v1/x"), "corp's narrower binding wins");
+    assert!(CredentialBindings::merged(&CredentialBindings::default(), &CredentialBindings::default()).is_empty());
+}
+
+#[test]
+fn settings_file_carries_bindings_and_omits_an_empty_section() {
+    let settings: crate::SettingsFile = toml::from_str(
+        r#"
+[credential_bindings.stripe]
+hosts = ["api.stripe.com"]
+placement = { header = "authorization", scheme = "Bearer" }
+"#,
+    )
+    .unwrap();
+    assert!(settings.credential_bindings.get("stripe").is_some());
+    assert!(!toml::to_string(&crate::SettingsFile::default())
+        .unwrap()
+        .contains("credential_bindings"));
+    assert!(
+        toml::from_str::<crate::SettingsFile>(
+            "[credential_bindings.bad]\nhosts = [\"10.0.0.1\"]\nplacement = { query = \"k\" }"
+        )
+        .is_err(),
+        "invalid bindings fail the whole settings file"
+    );
+}
