@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add host-declared HTTP credential bindings: `[credential_bindings.<id>]` in settings or corp policy names the hosts, header or query key, and optional method and path limits for one brokered secret, and `POST /credentials/inject` with provider `http` and a `binding` returns a reference usable only there. VMs can call APIs beyond the built-in providers without holding the secret; any other use is refused.
+
 - Reuse the supported public release HTTP reader for client continuation and isolate npm publisher configuration from legacy registry credentials while preserving GitHub OIDC authority.
 
 - Record the deliberate async-executor1.14.1 native lock/cache identity update while preserving the original published client and native artifacts.
