@@ -16,6 +16,8 @@ async fn substitution_round_trip_preserves_unbrokered_headers_and_query() {
             request_id: 7,
             domain: "example.com".to_string(),
             ai_provider: Some(ProxyModelProvider::Unknown),
+            method: "GET".to_string(),
+            path: "/".to_string(),
             headers: vec![ProxyHeader::new("x-test", b"ordinary".to_vec())],
             query: Some("page=1".to_string()),
         })

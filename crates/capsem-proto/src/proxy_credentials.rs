@@ -75,6 +75,8 @@ pub enum ProxyCredentialRequest {
         domain: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ai_provider: Option<ProxyModelProvider>,
+        method: String,
+        path: String,
         headers: Vec<ProxyHeader>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         query: Option<String>,
@@ -101,9 +103,16 @@ impl ProxyCredentialRequest {
                 bounded_optional(&observation.context_json, MAX_CREDENTIAL_VALUE_BYTES)
             }
             Self::Substitute {
-                domain, headers, query, ..
+                domain,
+                method,
+                path,
+                headers,
+                query,
+                ..
             } => {
                 bounded(domain, MAX_CREDENTIAL_FIELD_BYTES)?;
+                bounded(method, MAX_CREDENTIAL_FIELD_BYTES)?;
+                bounded(path, MAX_CREDENTIAL_VALUE_BYTES)?;
                 if headers.len() > MAX_CREDENTIAL_HEADERS {
                     return Err(ProxyCredentialProtocolError::TooManyHeaders);
                 }

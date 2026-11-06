@@ -9,7 +9,7 @@ use capsem_proto::proxy_credentials::{
     ProxyCredentialResponse, ProxyHeader, ProxyModelProvider, MAX_CREDENTIAL_ERROR_BYTES,
 };
 
-use capsem_core::credential_broker::{BrokeredCredential, CredentialObservation, CredentialProvider};
+use capsem_core::credential_broker::{BrokeredCredential, CredentialObservation, CredentialProvider, UpstreamTarget};
 use capsem_core::net::ai_traffic::provider::ProviderKind;
 
 pub(crate) async fn serve(stream: UnixStream) -> Result<(), String> {
@@ -55,13 +55,20 @@ fn dispatch(request: ProxyCredentialRequest) -> Result<ProxyCredentialResponse, 
             request_id,
             domain,
             ai_provider,
+            method,
+            path,
             headers,
             query,
         } => {
             let mut headers = core_headers(headers)?;
+            let target = UpstreamTarget {
+                domain: &domain,
+                ai_provider: ai_provider.map(core_model_provider),
+                method: &method,
+                path: &path,
+            };
             let substituted = capsem_core::credential_broker::substitute_brokered_upstream_credentials(
-                &domain,
-                ai_provider.map(core_model_provider),
+                target,
                 &mut headers,
                 query.as_deref(),
             )?;

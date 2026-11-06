@@ -57,13 +57,15 @@ pub(crate) fn materialize_http_request_for_upstream_with_credentials(
     }
 
     let mut headers = request.headers.clone();
+    let http = event.http.as_ref();
+    let target = UpstreamTarget {
+        domain: &request.domain,
+        ai_provider: request.ai_provider,
+        method: http.and_then(|http| http.method.as_deref()).unwrap_or_default(),
+        path: http.and_then(|http| http.path.as_deref()).unwrap_or_default(),
+    };
     let BrokeredUpstreamCredentials { credential_ref, query } = credentials
-        .substitute_upstream(
-            &request.domain,
-            request.ai_provider,
-            &mut headers,
-            request.query.as_deref(),
-        )
+        .substitute_upstream(target, &mut headers, request.query.as_deref())
         .map_err(SecurityActionError::new)?;
 
     Ok(MaterializedHttpRequest {

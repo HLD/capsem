@@ -436,6 +436,15 @@ pub async fn log_brokered_injections(db: &DbWriter, rules: &SecurityRuleSet, inj
     }
 }
 
+/// The request facts a substitution decision is made on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UpstreamTarget<'a> {
+    pub domain: &'a str,
+    pub ai_provider: Option<ProviderKind>,
+    pub method: &'a str,
+    pub path: &'a str,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrokeredUpstreamCredentials {
     pub credential_ref: Option<String>,
@@ -443,12 +452,11 @@ pub struct BrokeredUpstreamCredentials {
 }
 
 pub fn substitute_brokered_upstream_credentials(
-    domain: &str,
-    ai_provider: Option<ProviderKind>,
+    target: UpstreamTarget<'_>,
     headers: &mut http::HeaderMap,
     query: Option<&str>,
 ) -> Result<BrokeredUpstreamCredentials, String> {
-    let provider_hint = credential_provider_for_request(domain, ai_provider);
+    let provider_hint = credential_provider_for_request(target.domain, target.ai_provider);
     let mut credential_ref = None;
 
     for value in headers.values_mut() {

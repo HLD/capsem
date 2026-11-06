@@ -1,8 +1,18 @@
 use std::os::unix::net::UnixStream;
 
+use capsem_core::credential_broker::UpstreamTarget;
 use capsem_core::net::proxy_engine::ProxyCredentials;
 use capsem_foundation::ipc_channel;
 use capsem_proto::proxy_credentials::{ProxyCredentialRequest, ProxyCredentialResponse};
+
+fn target() -> UpstreamTarget<'static> {
+    UpstreamTarget {
+        domain: "example.com",
+        ai_provider: None,
+        method: "GET",
+        path: "/v1/items",
+    }
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_substitution_preserves_correlated_headers_and_reports_disconnect() {
@@ -13,6 +23,8 @@ async fn remote_substitution_preserves_correlated_headers_and_reports_disconnect
             ipc_channel::channel_from_std::<ProxyCredentialResponse, ProxyCredentialRequest>(service).unwrap();
         let ProxyCredentialRequest::Substitute {
             request_id,
+            method,
+            path,
             headers,
             query,
             ..
@@ -20,6 +32,7 @@ async fn remote_substitution_preserves_correlated_headers_and_reports_disconnect
         else {
             panic!("expected substitution request")
         };
+        assert_eq!((method.as_str(), path.as_str()), ("GET", "/v1/items"));
         sender
             .send(ProxyCredentialResponse::Substituted {
                 request_id,
@@ -33,7 +46,7 @@ async fn remote_substitution_preserves_correlated_headers_and_reports_disconnect
     let mut headers = http::HeaderMap::new();
     headers.insert("x-test", http::HeaderValue::from_static("ordinary"));
     let result = client
-        .substitute_upstream("example.com", None, &mut headers, Some("page=1"))
+        .substitute_upstream(target(), &mut headers, Some("page=1"))
         .unwrap();
     assert_eq!(headers["x-test"], "ordinary");
     assert_eq!(result.query.as_deref(), Some("page=1"));
@@ -84,7 +97,7 @@ fn remote_substitution_does_not_panic_on_the_proxy_current_thread_runtime() {
         .unwrap();
     runtime.block_on(async move {
         client
-            .substitute_upstream("example.com", None, &mut http::HeaderMap::new(), None)
+            .substitute_upstream(target(), &mut http::HeaderMap::new(), None)
             .unwrap();
     });
     serving.join().unwrap();

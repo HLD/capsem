@@ -139,7 +139,7 @@ fn brokered_reference_is_never_dereferenced_for_lookalike_domain() {
 
     for host in HOSTILE_OPENAI_HOSTS {
         let mut headers = bearer(&reference);
-        let result = substitute_brokered_upstream_credentials(host, None, &mut headers, None);
+        let result = substitute_brokered_upstream_credentials(get_target(host, None), &mut headers, None);
         assert!(result.is_err(), "{host:?} must not receive the brokered secret");
         let auth = headers[http::header::AUTHORIZATION].to_str().unwrap().to_string();
         assert!(!auth.contains(secret), "{host:?}: plaintext leaked into header: {auth}");
@@ -149,13 +149,14 @@ fn brokered_reference_is_never_dereferenced_for_lookalike_domain() {
         );
 
         let query = format!("api_key={reference}");
-        let result = substitute_brokered_upstream_credentials(host, None, &mut http::HeaderMap::new(), Some(&query));
+        let result =
+            substitute_brokered_upstream_credentials(get_target(host, None), &mut http::HeaderMap::new(), Some(&query));
         assert!(result.is_err(), "{host:?} must not receive the secret via query either");
     }
 
     for host in LEGITIMATE_OPENAI_HOSTS {
         let mut headers = bearer(&reference);
-        substitute_brokered_upstream_credentials(host, None, &mut headers, None)
+        substitute_brokered_upstream_credentials(get_target(host, None), &mut headers, None)
             .unwrap_or_else(|e| panic!("{host:?} must resolve the OpenAI reference: {e}"));
         assert_eq!(
             headers[http::header::AUTHORIZATION].to_str().unwrap(),

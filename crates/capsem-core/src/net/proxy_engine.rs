@@ -18,9 +18,10 @@ use std::sync::{Arc, RwLock};
 
 use capsem_logger::{DbWriter, WriteOp};
 
-use crate::credential_broker::{BrokeredCredential, BrokeredUpstreamCredentials, CredentialObservation};
+use crate::credential_broker::{
+    BrokeredCredential, BrokeredUpstreamCredentials, CredentialObservation, UpstreamTarget,
+};
 use crate::mcp::policy::McpConfig;
-use crate::net::ai_traffic::provider::ProviderKind;
 use crate::security_engine::{MaterializedHttpRequest, SecurityActionError, SecurityBoundaryEvaluation, SecurityEvent};
 
 use super::policy::NetworkMechanics;
@@ -51,8 +52,7 @@ pub trait ProxyCredentials: Send + Sync {
 
     fn substitute_upstream(
         &self,
-        domain: &str,
-        ai_provider: Option<ProviderKind>,
+        target: UpstreamTarget<'_>,
         headers: &mut http::HeaderMap,
         query: Option<&str>,
     ) -> Result<BrokeredUpstreamCredentials, String>;
@@ -76,12 +76,11 @@ impl ProxyCredentials for LocalProxyCredentials {
 
     fn substitute_upstream(
         &self,
-        domain: &str,
-        ai_provider: Option<ProviderKind>,
+        target: UpstreamTarget<'_>,
         headers: &mut http::HeaderMap,
         query: Option<&str>,
     ) -> Result<BrokeredUpstreamCredentials, String> {
-        crate::credential_broker::substitute_brokered_upstream_credentials(domain, ai_provider, headers, query)
+        crate::credential_broker::substitute_brokered_upstream_credentials(target, headers, query)
     }
 }
 
