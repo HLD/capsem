@@ -185,6 +185,15 @@ fn wildcard_matches_subdomains_on_label_boundary_not_apex() {
 }
 
 #[test]
+fn host_names_expose_exact_hosts_and_wildcard_domains() {
+    let binding = bearer("[\"API.example.com\", \"*.example.org\"]");
+    assert_eq!(
+        binding.host_names().collect::<Vec<_>>(),
+        vec!["api.example.com", "example.org"]
+    );
+}
+
+#[test]
 fn ip_literal_requests_never_match() {
     let binding = bearer("[\"*.example.com\"]");
     assert!(!binding.matches_host("127.0.0.1"));

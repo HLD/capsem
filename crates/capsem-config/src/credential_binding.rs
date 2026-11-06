@@ -101,6 +101,15 @@ impl CredentialBinding {
         &self.placement
     }
 
+    /// Each pattern's DNS name: the exact host, or the domain a `*.` wildcard
+    /// covers. Lets callers reject bindings under domains they already own.
+    pub fn host_names(&self) -> impl Iterator<Item = &str> {
+        self.hosts.iter().map(|pattern| match pattern {
+            HostPattern::Exact(exact) => exact.as_str(),
+            HostPattern::Subdomains(suffix) => &suffix[1..],
+        })
+    }
+
     /// Exact host, or a `*.` wildcard matching any subdomain depth but not
     /// the apex. Case-insensitive; one trailing FQDN dot is ignored. Hosts
     /// with a port, IP literals and empty labels never match.
