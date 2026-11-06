@@ -195,6 +195,7 @@ impl ProxyCredentials for RecordingCredentials {
         Ok(BrokeredUpstreamCredentials {
             credential_ref: Some("blake3:scoped-reference".to_string()),
             query: query.map(str::to_string),
+            bound: Vec::new(),
         })
     }
 }

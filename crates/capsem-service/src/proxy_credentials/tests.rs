@@ -5,7 +5,7 @@ use capsem_core::net::policy_config::{ActivePolicyFile, SettingsFile};
 use capsem_credentials::{CredentialPersistence, CredentialStore};
 use capsem_foundation::ipc_channel;
 use capsem_proto::proxy_credentials::{
-    ProxyCredentialRequest, ProxyCredentialResponse, ProxyHeader, ProxyModelProvider,
+    ProxyBoundReference, ProxyCredentialRequest, ProxyCredentialResponse, ProxyHeader, ProxyModelProvider,
 };
 
 use crate::upstream_broker::{policy_watch, BrokerPolicy};
@@ -65,6 +65,7 @@ async fn substitution_round_trip_preserves_unbrokered_headers_and_query() {
             headers: vec![ProxyHeader::new("x-test", b"ordinary".to_vec())],
             query: Some("page=1".to_string()),
             credential_ref: None,
+            bound: Vec::new(),
         }
     );
     drop(sender);
@@ -96,6 +97,10 @@ async fn bound_credential_follows_the_session_policy_and_its_updates() {
             headers: vec![ProxyHeader::new("authorization", format!("Bearer {raw}").into_bytes())],
             query: None,
             credential_ref: Some(reference.clone()),
+            bound: vec![ProxyBoundReference {
+                credential_ref: reference.clone(),
+                binding: "svc-proxy-test".to_string(),
+            }],
         }
     );
 

@@ -6,7 +6,7 @@ use capsem_config::CredentialBindings;
 pub use capsem_credentials::{
     broker_reference_replay_available, credential_store_account, credential_store_status,
     hydrate_credential_runtime_cache_from_durable_store, is_broker_reference, resolve_broker_reference_for_provider,
-    CredentialProvider, CredentialStore, CredentialStoreStatus, STORE_PATH_ENV,
+    CredentialNamespace, CredentialProvider, CredentialStore, CredentialStoreStatus, STORE_PATH_ENV,
 };
 use capsem_logger::{credential_reference, DbWriter, SubstitutionEvent};
 use tracing::warn;
@@ -32,6 +32,9 @@ pub struct CredentialObservation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialInjection {
     pub provider: Option<CredentialProvider>,
+    /// The host-declared binding the reference was substituted through, set
+    /// after materialization; detection cannot know it.
+    pub binding: Option<String>,
     pub credential_ref: String,
     pub source: String,
     pub event_type: Option<String>,
@@ -81,7 +84,10 @@ impl CredentialInjection {
             algorithm: "blake3".to_string(),
             substitution_ref: self.credential_ref.clone(),
             outcome: outcome.to_string(),
-            provider: self.provider.map(|provider| provider.as_str().to_string()),
+            provider: match (&self.binding, self.provider) {
+                (Some(binding), _) => Some(CredentialNamespace::Binding(binding.clone()).as_str().into_owned()),
+                (None, provider) => provider.map(|provider| provider.as_str().to_string()),
+            },
             confidence: None,
             trace_id: self.trace_id.clone(),
             context_json: self.context_json.clone(),
@@ -232,6 +238,7 @@ pub fn detect_brokered_http_references(
         };
         found.push(CredentialInjection {
             provider: provider_hint.or_else(|| provider_for_stored_reference(&reference)),
+            binding: None,
             credential_ref: reference,
             source: format!("http.header.{}", name.as_str().to_ascii_lowercase()),
             event_type: Some("http.request".to_string()),
@@ -450,6 +457,27 @@ pub struct UpstreamTarget<'a> {
 pub struct BrokeredUpstreamCredentials {
     pub credential_ref: Option<String>,
     pub query: Option<String>,
+    /// Every reference substituted through a host-declared binding.
+    pub bound: Vec<BoundReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundReference {
+    pub credential_ref: String,
+    pub binding: String,
+}
+
+/// Name the binding on each injection whose reference was substituted
+/// through one, so its ledger row says `http:<binding>` rather than nothing.
+pub fn attribute_bound_injections(injections: &mut [CredentialInjection], bound: &[BoundReference]) {
+    for injection in injections.iter_mut().filter(|injection| injection.provider.is_none()) {
+        if let Some(found) = bound
+            .iter()
+            .find(|found| found.credential_ref == injection.credential_ref)
+        {
+            injection.binding = Some(found.binding.clone());
+        }
+    }
 }
 
 /// Built-in provider destinations keep their existing path unchanged.
@@ -491,7 +519,11 @@ pub fn substitute_brokered_upstream_credentials(
         None => None,
     };
 
-    Ok(BrokeredUpstreamCredentials { credential_ref, query })
+    Ok(BrokeredUpstreamCredentials {
+        credential_ref,
+        query,
+        bound: Vec::new(),
+    })
 }
 
 fn substitute_brokered_header_value(
@@ -598,6 +630,7 @@ fn collect_query_brokered_references(
         }
         out.push(CredentialInjection {
             provider: provider_hint.or_else(|| provider_for_stored_reference(&decoded)),
+            binding: None,
             credential_ref: decoded,
             source: format!("http.query.{name}"),
             event_type: Some("http.request".to_string()),

@@ -10,7 +10,8 @@
 use capsem_config::{CredentialBinding, CredentialBindings, CredentialPlacement};
 
 use super::{
-    is_broker_reference, percent_decode, percent_encode_query_value, BrokeredUpstreamCredentials, UpstreamTarget,
+    is_broker_reference, percent_decode, percent_encode_query_value, BoundReference, BrokeredUpstreamCredentials,
+    UpstreamTarget,
 };
 
 /// Looks up material for `(binding id, reference)`. Absent and unreadable
@@ -43,6 +44,7 @@ pub(super) fn substitute_bound(
             .collect()
     };
     let mut credential_ref = None;
+    let mut bound = Vec::new();
 
     for (name, value) in headers.iter_mut() {
         let text = value
@@ -51,7 +53,7 @@ pub(super) fn substitute_bound(
         let Some((scheme, reference)) = header_reference(text) else {
             continue;
         };
-        let raw = resolve_admitted(&admitted, resolve, reference, |placement| match placement {
+        let (raw, binding) = resolve_admitted(&admitted, resolve, reference, |placement| match placement {
             CredentialPlacement::Header {
                 name: bound_name,
                 scheme: bound_scheme,
@@ -66,6 +68,10 @@ pub(super) fn substitute_bound(
             CredentialPlacement::Query { .. } => false,
         })?;
         credential_ref.get_or_insert_with(|| reference.to_string());
+        bound.push(BoundReference {
+            credential_ref: reference.to_string(),
+            binding,
+        });
         let substituted = match scheme {
             Some(scheme) => format!("{scheme} {raw}"),
             None => raw,
@@ -75,10 +81,20 @@ pub(super) fn substitute_bound(
     }
 
     let query = match query {
-        Some(query) => Some(substitute_bound_query(query, &admitted, resolve, &mut credential_ref)?),
+        Some(query) => Some(substitute_bound_query(
+            query,
+            &admitted,
+            resolve,
+            &mut credential_ref,
+            &mut bound,
+        )?),
         None => None,
     };
-    Ok(Some(BrokeredUpstreamCredentials { credential_ref, query }))
+    Ok(Some(BrokeredUpstreamCredentials {
+        credential_ref,
+        query,
+        bound,
+    }))
 }
 
 fn substitute_bound_query(
@@ -86,6 +102,7 @@ fn substitute_bound_query(
     admitted: &[(&str, &CredentialBinding)],
     resolve: &BoundResolver<'_>,
     credential_ref: &mut Option<String>,
+    bound: &mut Vec<BoundReference>,
 ) -> Result<String, String> {
     let mut changed = false;
     let mut parts = Vec::new();
@@ -99,12 +116,16 @@ fn substitute_bound_query(
             parts.push(part.to_string());
             continue;
         }
-        let raw = resolve_admitted(
+        let (raw, binding) = resolve_admitted(
             admitted,
             resolve,
             &decoded,
             |placement| matches!(placement, CredentialPlacement::Query { key: bound } if bound == key),
         )?;
+        bound.push(BoundReference {
+            credential_ref: decoded.clone(),
+            binding,
+        });
         credential_ref.get_or_insert(decoded);
         parts.push(format!("{key}={}", percent_encode_query_value(&raw)));
         changed = true;
@@ -113,19 +134,20 @@ fn substitute_bound_query(
 }
 
 /// The first admitted binding, in id order, whose placement matches and
-/// which holds material for `reference`. Anything else is a refusal.
+/// which holds material for `reference`, with that binding's id. Anything
+/// else is a refusal.
 fn resolve_admitted(
     admitted: &[(&str, &CredentialBinding)],
     resolve: &BoundResolver<'_>,
     reference: &str,
     placed: impl Fn(&CredentialPlacement) -> bool,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
     for (id, binding) in admitted {
         if !placed(binding.placement()) {
             continue;
         }
         if let Some(raw) = resolve(id, reference) {
-            return Ok(raw);
+            return Ok((raw, (*id).to_string()));
         }
     }
     Err(REFUSED.to_string())

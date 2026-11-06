@@ -377,6 +377,7 @@ async fn hook_writes_injected_substitution_event_for_broker_ref_replay() {
     req_ctx.request_headers = Some(format!("authorization: Bearer {credential_ref}"));
     req_ctx.credential_injections = vec![CredentialInjection {
         provider: Some(CredentialProvider::Anthropic),
+        binding: None,
         credential_ref: credential_ref.clone(),
         source: "http.header.authorization".to_string(),
         event_type: Some("http.request".to_string()),

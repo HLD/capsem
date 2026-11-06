@@ -39,6 +39,10 @@ async fn remote_substitution_preserves_correlated_headers_and_reports_disconnect
                 headers,
                 query,
                 credential_ref: Some("credential:blake3:test".to_string()),
+                bound: vec![capsem_proto::proxy_credentials::ProxyBoundReference {
+                    credential_ref: "credential:blake3:test".to_string(),
+                    binding: "svc".to_string(),
+                }],
             })
             .await
             .unwrap();
@@ -51,6 +55,14 @@ async fn remote_substitution_preserves_correlated_headers_and_reports_disconnect
     assert_eq!(headers["x-test"], "ordinary");
     assert_eq!(result.query.as_deref(), Some("page=1"));
     assert_eq!(result.credential_ref.as_deref(), Some("credential:blake3:test"));
+    assert_eq!(
+        result.bound,
+        vec![capsem_core::credential_broker::BoundReference {
+            credential_ref: "credential:blake3:test".to_string(),
+            binding: "svc".to_string(),
+        }],
+        "the binding crosses the confined-proxy boundary"
+    );
     serving.await.unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(1), closed.changed())
         .await
@@ -86,6 +98,7 @@ fn remote_substitution_does_not_panic_on_the_proxy_current_thread_runtime() {
                     headers,
                     query: None,
                     credential_ref: None,
+                    bound: Vec::new(),
                 })
                 .await
                 .unwrap();

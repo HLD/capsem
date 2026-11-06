@@ -4,7 +4,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use capsem_core::credential_broker::{
-    BrokeredCredential, BrokeredUpstreamCredentials, CredentialObservation, CredentialProvider, UpstreamTarget,
+    BoundReference, BrokeredCredential, BrokeredUpstreamCredentials, CredentialObservation, CredentialProvider,
+    UpstreamTarget,
 };
 use capsem_core::net::ai_traffic::provider::ProviderKind;
 use capsem_core::net::proxy_engine::ProxyCredentials;
@@ -261,11 +262,27 @@ fn finish(command: Command, response: ProxyCredentialResponse) -> Result<(), Str
                 headers,
                 query,
                 credential_ref,
+                bound,
                 ..
             },
         ) => {
-            let result =
-                core_headers(headers).map(|headers| (headers, BrokeredUpstreamCredentials { credential_ref, query }));
+            let bound = bound
+                .into_iter()
+                .map(|bound| BoundReference {
+                    credential_ref: bound.credential_ref,
+                    binding: bound.binding,
+                })
+                .collect();
+            let result = core_headers(headers).map(|headers| {
+                (
+                    headers,
+                    BrokeredUpstreamCredentials {
+                        credential_ref,
+                        query,
+                        bound,
+                    },
+                )
+            });
             let _ = reply.send(result);
             Ok(())
         }

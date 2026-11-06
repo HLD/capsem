@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::*;
+use crate::credential_broker::{CredentialInjection, CredentialProvider};
 
 const STRIPE_SECRET: &str = "rk_test_bound_secret_stripe_0001";
 const LINEAR_SECRET: &str = "lin_api_bound_secret_linear_0002";
@@ -112,6 +113,13 @@ fn bound_bearer_header_is_substituted_on_its_host() {
     assert_eq!(headers["x-trace"], "ordinary");
     assert_eq!(result.credential_ref.as_deref(), Some(stripe.as_str()));
     assert_eq!(result.query, None);
+    assert_eq!(
+        result.bound,
+        vec![BoundReference {
+            credential_ref: stripe,
+            binding: "stripe".into()
+        }]
+    );
 }
 
 #[test]
@@ -289,7 +297,8 @@ fn requests_without_references_pass_through_on_bound_hosts() {
         result,
         BrokeredUpstreamCredentials {
             credential_ref: None,
-            query: Some("page=2".to_string())
+            query: Some("page=2".to_string()),
+            bound: Vec::new(),
         }
     );
 }
@@ -319,4 +328,40 @@ placement = { header = "authorization", scheme = "Bearer" }
     );
     assert!(result.is_err(), "the built-in provider path owns this host");
     assert_eq!(headers["authorization"], format!("Bearer {bound}"));
+}
+
+#[test]
+fn bound_injections_report_their_binding_as_the_ledger_provider() {
+    let stripe = reference("stripe", STRIPE_SECRET);
+    let injection = |credential_ref: &str, provider: Option<CredentialProvider>| CredentialInjection {
+        provider,
+        binding: None,
+        credential_ref: credential_ref.to_string(),
+        source: "http.header.authorization".to_string(),
+        event_type: Some("http.request".to_string()),
+        trace_id: None,
+        context_json: None,
+    };
+    let openai = capsem_logger::credential_reference("openai", "sk-openai-not-bound-0006");
+    let mut injections = vec![
+        injection(&stripe, None),
+        injection(&openai, Some(CredentialProvider::OpenAi)),
+        injection(&reference("linear", LINEAR_SECRET), None),
+    ];
+    super::super::attribute_bound_injections(
+        &mut injections,
+        &[BoundReference {
+            credential_ref: stripe,
+            binding: "stripe".into(),
+        }],
+    );
+    let providers: Vec<_> = injections
+        .iter()
+        .map(|injection| injection.redacted_event("injected").provider)
+        .collect();
+    assert_eq!(
+        providers,
+        vec![Some("http:stripe".to_string()), Some("openai".to_string()), None],
+        "only a reference actually substituted through a binding is attributed to it"
+    );
 }

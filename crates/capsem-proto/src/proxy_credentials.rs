@@ -129,6 +129,12 @@ impl ProxyCredentialRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProxyBoundReference {
+    pub credential_ref: String,
+    pub binding: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyCredentialResponse {
     Captured {
@@ -142,6 +148,10 @@ pub enum ProxyCredentialResponse {
         query: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         credential_ref: Option<String>,
+        /// References substituted through host-declared bindings, so the
+        /// proxy's ledger can name the binding without holding policy.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        bound: Vec<ProxyBoundReference>,
     },
     Rejected {
         request_id: u64,

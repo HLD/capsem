@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use capsem_foundation::ipc_channel;
 use capsem_proto::proxy_credentials::{
-    ProxyBrokeredCredential, ProxyCredentialObservation, ProxyCredentialProvider, ProxyCredentialRequest,
+    ProxyBoundReference, ProxyBrokeredCredential, ProxyCredentialObservation, ProxyCredentialProvider, ProxyCredentialRequest,
     ProxyCredentialResponse, ProxyHeader, ProxyModelProvider, MAX_CREDENTIAL_ERROR_BYTES,
 };
 
@@ -88,6 +88,14 @@ fn dispatch(
                 headers: wire_headers(&headers),
                 query: substituted.query,
                 credential_ref: substituted.credential_ref,
+                bound: substituted
+                    .bound
+                    .into_iter()
+                    .map(|bound| ProxyBoundReference {
+                        credential_ref: bound.credential_ref,
+                        binding: bound.binding,
+                    })
+                    .collect(),
             })
         }
     }
